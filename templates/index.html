@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Downloader do YouTube</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: #1e1e1e;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 450px;
+            text-align: center;
+        }
+        h1 {
+            margin-top: 0;
+            color: #ff0000;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            color: #aaaaaa;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+        }
+        input, select, button {
+            padding: 0.85rem;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background-color: #2c2c2c;
+            color: #fff;
+            font-size: 1rem;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #ff0000;
+        }
+        button {
+            background-color: #ff0000;
+            color: #fff;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #cc0000;
+            opacity: 0.9;
+        }
+        button:disabled {
+            background-color: #555 !important;
+            cursor: not-allowed;
+        }
+        .loading {
+            display: none;
+            margin-top: 1rem;
+            color: #aaaaaa;
+            font-size: 0.9rem;
+        }
+        .message {
+            display: none;
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            font-size: 0.95rem;
+        }
+        .success {
+            background-color: #10b981;
+            color: white;
+        }
+        .error {
+            background-color: #ef4444;
+            color: white;
+        }
+        .quality-badge {
+            font-weight: bold;
+            background: rgba(0,0,0,0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+    </style>
+    <script>
+        async function handleDownload(event) {
+            event.preventDefault();
+            
+            const form = document.getElementById('download-form');
+            const formData = new FormData(form);
+            
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('submit-btn').disabled = true;
+            document.getElementById('submit-btn').innerText = 'Processando... Aguarde.';
+            
+            document.getElementById('success-msg').style.display = 'none';
+            document.getElementById('error-msg').style.display = 'none';
+
+            try {
+                const response = await fetch('/download', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('success-msg').style.display = 'block';
+                    document.getElementById('quality-info').innerText = data.quality;
+                    // Inicia o download automaticamente
+                    window.location.href = `/files/${encodeURIComponent(data.filename)}`;
+                } else {
+                    document.getElementById('error-msg').style.display = 'block';
+                    document.getElementById('error-text').innerText = data.error || 'Falha ao baixar o arquivo.';
+                }
+            } catch (err) {
+                document.getElementById('error-msg').style.display = 'block';
+                document.getElementById('error-text').innerText = 'Erro de conexão com o servidor.';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('submit-btn').disabled = false;
+                document.getElementById('submit-btn').innerText = 'Baixar Agora';
+                form.reset();
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Downloader</h1>
+        <div class="subtitle">* A qualidade baixada será sempre a <strong>melhor disponível</strong> (em um único arquivo) para o vídeo ou áudio do link fornecido.</div>
+        
+        <div id="success-msg" class="message success">
+            Download concluído!<br>
+            Qualidade: <span id="quality-info" class="quality-badge"></span>
+        </div>
+        <div id="error-msg" class="message error">
+            <strong>Erro:</strong> <span id="error-text"></span>
+        </div>
+
+        <form id="download-form" onsubmit="handleDownload(event)">
+            <input type="url" name="url" placeholder="Cole o link do YouTube aqui..." required>
+            <select name="format">
+                <option value="video">Baixar como Vídeo</option>
+                <option value="audio">Baixar Apenas Áudio</option>
+            </select>
+            <button type="submit" id="submit-btn">Baixar Agora</button>
+        </form>
+
+        <div id="loading" class="loading">
+            Isso pode demorar alguns minutos dependendo do tamanho. O download começará automaticamente assim que o arquivo estiver pronto.
+        </div>
+    </div>
+</body>
+</html>
