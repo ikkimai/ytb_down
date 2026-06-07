@@ -39,11 +39,11 @@ def download():
         
         if format_type == 'audio':
             ydl_opts.update({
-                'format': 'bestaudio/best',
+                'format': 'bestaudio[ext=m4a]/bestaudio/best',
             })
         else:
             ydl_opts.update({
-                'format': 'best',
+                'format': 'best[ext=mp4]/best',
             })
             
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
