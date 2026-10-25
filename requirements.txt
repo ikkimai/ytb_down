@@ -2,4 +2,3 @@ Flask
 yt-dlp
 requests
 instaloader
-pytubefix

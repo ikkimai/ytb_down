@@ -1,12 +1,13 @@
 import os
 import re
+import yt_dlp
 
 def resolve_youtube(url, format_type='video'):
     """
     Extrai o link direto de reprodução/download do YouTube utilizando
-    pytubefix e yt-dlp configurados com o cliente ANDROID_VR (Meta Quest / VR).
-    O cliente VR não exige login nem PO-token, contornando 100% o bloqueio
-    de bot em datacenters (como Vercel/AWS).
+    o cliente android_vr no yt-dlp.
+    O cliente VR da Meta Quest / Android não exige login nem PO-token,
+    contornando o bloqueio de bot em datacenters (como Vercel/AWS).
     """
     # Limpar parâmetros extras da URL como &list= para evitar erro de playlist
     clean_url = url
@@ -15,49 +16,6 @@ def resolve_youtube(url, format_type='video'):
         video_id = v_match.group(1)
         clean_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # Método 1: pytubefix com ANDROID_VR como prioridade máxima
-    for client_name in ['ANDROID_VR', 'ANDROID', 'IOS', 'MWEB']:
-        try:
-            from pytubefix import YouTube
-            yt = YouTube(clean_url, client=client_name)
-            
-            title = yt.title or "YouTube_Video"
-            thumbnail = yt.thumbnail_url
-            duration = f"{yt.length // 60}:{yt.length % 60:02d}" if yt.length else "Vídeo"
-            
-            if format_type == 'audio':
-                stream = yt.streams.get_audio_only()
-                if stream and stream.url:
-                    return {
-                        'success': True,
-                        'title': title,
-                        'download_url': stream.url,
-                        'thumbnail': thumbnail,
-                        'duration': duration,
-                        'quality': f"{stream.abr or '128kbps'} (Áudio M4A)",
-                        'extension': 'm4a',
-                        'direct': True,
-                        'source': f'YouTube ({client_name})'
-                    }
-            else:
-                stream = yt.streams.get_highest_resolution()
-                if stream and stream.url:
-                    return {
-                        'success': True,
-                        'title': title,
-                        'download_url': stream.url,
-                        'thumbnail': thumbnail,
-                        'duration': duration,
-                        'quality': f"{stream.resolution or '720p'} (Vídeo + Áudio)",
-                        'extension': 'mp4',
-                        'direct': True,
-                        'source': f'YouTube ({client_name})'
-                    }
-        except Exception:
-            continue
-
-    # Método 2: Fallback para yt-dlp configurado com android_vr
-    import yt_dlp
     cookie_file = None
     if os.environ.get('YOUTUBE_COOKIES'):
         cookie_path = '/tmp/cookies.txt' if os.environ.get('VERCEL') else os.path.join(os.path.dirname(__file__), '..', 'cookies.txt')
@@ -74,7 +32,7 @@ def resolve_youtube(url, format_type='video'):
         'no_warnings': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android_vr', 'android']
+                'player_client': ['android_vr']
             }
         }
     }
@@ -93,6 +51,7 @@ def resolve_youtube(url, format_type='video'):
         extension = 'mp4'
 
         if format_type == 'audio':
+            # Filtrar faixas de áudio isoladas (m4a, webm) excluindo storyboards (mhtml)
             audio_formats = [
                 f for f in formats 
                 if f.get('acodec') and f.get('acodec') != 'none' 
