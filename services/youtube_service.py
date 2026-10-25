@@ -16,6 +16,7 @@ def resolve_youtube(url, format_type='video'):
 
     # Método 1: pytubefix com clientes móveis (ANDROID, IOS, MWEB)
     # Este método não sofre o bloqueio de 'Sign in to confirm you're not a bot'
+    pytube_errors = []
     for client_name in ['ANDROID', 'IOS', 'MWEB']:
         try:
             from pytubefix import YouTube
@@ -53,10 +54,12 @@ def resolve_youtube(url, format_type='video'):
                         'direct': True,
                         'source': f'YouTube ({client_name})'
                     }
-        except Exception:
+        except Exception as e:
+            pytube_errors.append(f"{client_name}: {type(e).__name__}: {str(e)}")
             continue
 
-    # Método 2: Fallback para yt-dlp
+    # Se pytubefix falhou, verificar se foi por falta de módulo ou bloqueio
+    # e tentar yt-dlp
     import yt_dlp
     cookie_file = None
     if os.environ.get('YOUTUBE_COOKIES'):
@@ -81,81 +84,87 @@ def resolve_youtube(url, format_type='video'):
     if cookie_file:
         ydl_opts['cookiefile'] = cookie_file
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(clean_url, download=False)
-        title = info.get('title', 'Video_YouTube')
-        thumbnail = info.get('thumbnail')
-        duration = info.get('duration_string') or f"{info.get('duration', 0)}s"
-        formats = info.get('formats', [])
-        
-        selected_url = None
-        quality = 'Padrão'
-        extension = 'mp4'
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(clean_url, download=False)
+            title = info.get('title', 'Video_YouTube')
+            thumbnail = info.get('thumbnail')
+            duration = info.get('duration_string') or f"{info.get('duration', 0)}s"
+            formats = info.get('formats', [])
+            
+            selected_url = None
+            quality = 'Padrão'
+            extension = 'mp4'
 
-        if format_type == 'audio':
-            audio_formats = [
-                f for f in formats 
-                if f.get('acodec') and f.get('acodec') != 'none' 
-                and f.get('vcodec') == 'none'
-                and f.get('ext') not in ['mhtml']
-                and f.get('url') and 'http' in f.get('url')
-            ]
-            if audio_formats:
-                m4a_formats = [f for f in audio_formats if f.get('ext') == 'm4a']
-                chosen = m4a_formats[-1] if m4a_formats else audio_formats[-1]
-                selected_url = chosen.get('url')
-                extension = chosen.get('ext', 'm4a')
-                abr = chosen.get('abr')
-                quality = f"{int(abr)} kbps (Áudio)" if abr else "Melhor Áudio"
-            else:
-                f_with_audio = [
+            if format_type == 'audio':
+                audio_formats = [
                     f for f in formats 
                     if f.get('acodec') and f.get('acodec') != 'none' 
+                    and f.get('vcodec') == 'none'
                     and f.get('ext') not in ['mhtml']
                     and f.get('url') and 'http' in f.get('url')
                 ]
-                if f_with_audio:
-                    chosen = f_with_audio[0]
+                if audio_formats:
+                    m4a_formats = [f for f in audio_formats if f.get('ext') == 'm4a']
+                    chosen = m4a_formats[-1] if m4a_formats else audio_formats[-1]
                     selected_url = chosen.get('url')
-                    extension = chosen.get('ext', 'mp4')
-                    quality = "Áudio Original (AAC/MP4)"
-        else:
-            progressive = [
-                f for f in formats 
-                if f.get('vcodec') and f.get('vcodec') != 'none' 
-                and f.get('acodec') and f.get('acodec') != 'none' 
-                and f.get('ext') not in ['mhtml']
-                and f.get('url') and 'http' in f.get('url')
-            ]
-            if progressive:
-                chosen = progressive[-1]
-                selected_url = chosen.get('url')
-                extension = chosen.get('ext', 'mp4')
-                res = chosen.get('resolution') or f"{chosen.get('height', '360')}p"
-                quality = f"{res} (Vídeo + Áudio)"
+                    extension = chosen.get('ext', 'm4a')
+                    abr = chosen.get('abr')
+                    quality = f"{int(abr)} kbps (Áudio)" if abr else "Melhor Áudio"
+                else:
+                    f_with_audio = [
+                        f for f in formats 
+                        if f.get('acodec') and f.get('acodec') != 'none' 
+                        and f.get('ext') not in ['mhtml']
+                        and f.get('url') and 'http' in f.get('url')
+                    ]
+                    if f_with_audio:
+                        chosen = f_with_audio[0]
+                        selected_url = chosen.get('url')
+                        extension = chosen.get('ext', 'mp4')
+                        quality = "Áudio Original (AAC/MP4)"
             else:
-                any_video = [
+                progressive = [
                     f for f in formats 
-                    if f.get('url') and 'http' in f.get('url') 
+                    if f.get('vcodec') and f.get('vcodec') != 'none' 
+                    and f.get('acodec') and f.get('acodec') != 'none' 
                     and f.get('ext') not in ['mhtml']
+                    and f.get('url') and 'http' in f.get('url')
                 ]
-                if any_video:
-                    chosen = any_video[-1]
+                if progressive:
+                    chosen = progressive[-1]
                     selected_url = chosen.get('url')
                     extension = chosen.get('ext', 'mp4')
-                    quality = chosen.get('resolution', 'Padrão')
+                    res = chosen.get('resolution') or f"{chosen.get('height', '360')}p"
+                    quality = f"{res} (Vídeo + Áudio)"
+                else:
+                    any_video = [
+                        f for f in formats 
+                        if f.get('url') and 'http' in f.get('url') 
+                        and f.get('ext') not in ['mhtml']
+                    ]
+                    if any_video:
+                        chosen = any_video[-1]
+                        selected_url = chosen.get('url')
+                        extension = chosen.get('ext', 'mp4')
+                        quality = chosen.get('resolution', 'Padrão')
 
-        if not selected_url:
-            raise Exception("Não foi possível extrair um link de streaming válido para este conteúdo.")
+            if not selected_url:
+                raise Exception("Não foi possível extrair um link de streaming válido para este conteúdo.")
 
-        return {
-            'success': True,
-            'title': title,
-            'download_url': selected_url,
-            'thumbnail': thumbnail,
-            'duration': duration,
-            'quality': quality,
-            'extension': extension,
-            'direct': True,
-            'source': 'YouTube (yt-dlp)'
-        }
+            return {
+                'success': True,
+                'title': title,
+                'download_url': selected_url,
+                'thumbnail': thumbnail,
+                'duration': duration,
+                'quality': quality,
+                'extension': extension,
+                'direct': True,
+                'source': 'YouTube (yt-dlp)'
+            }
+    except Exception as ydl_err:
+        details = f"yt-dlp: {str(ydl_err)}"
+        if pytube_errors:
+            details += f" | Pytube: {'; '.join(pytube_errors)}"
+        raise Exception(details)
