@@ -1,6 +1,6 @@
 import os
 from flask import Flask, render_template, request, jsonify, redirect
-from downloader_engine import resolve_media
+from downloader_engine import resolve_media, check_media_status
 
 app = Flask(__name__)
 app.secret_key = 'chave_secreta_universal_downloader'
@@ -20,6 +20,19 @@ def download():
     try:
         media_data = resolve_media(url.strip(), format_type=format_type)
         return jsonify(media_data)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/status')
+def status():
+    run_id = request.args.get('run_id')
+    format_type = request.args.get('format', 'video')
+    if not run_id:
+        return jsonify({'success': False, 'error': 'Parâmetro run_id obrigatório.'})
+
+    try:
+        res = check_media_status(run_id, format_type=format_type)
+        return jsonify(res)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

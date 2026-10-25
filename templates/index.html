@@ -332,7 +332,7 @@
 
         <div id="loading-box" class="loading-box">
             <div class="spinner"></div>
-            <p style="font-size: 0.9rem; color: var(--text-muted);">
+            <p id="loading-text" style="font-size: 0.9rem; color: var(--text-muted); margin-top: 0.5rem;">
                 Extraindo o link de alta velocidade... Aguarde alguns instantes.
             </p>
         </div>
@@ -363,23 +363,99 @@
     </div>
 
     <script>
+        let pollInterval = null;
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        async function pollStatus(runId, formatType) {
+            const errorBox = document.getElementById('error-box');
+            const loadingBox = document.getElementById('loading-box');
+            const resultCard = document.getElementById('result-card');
+            const submitBtn = document.getElementById('submit-btn');
+            const loadingText = document.getElementById('loading-text');
+
+            let attempts = 0;
+            const maxAttempts = 30; // 30 x 3s = 90s max
+
+            pollInterval = setInterval(async () => {
+                attempts++;
+                if (attempts > maxAttempts) {
+                    stopPolling();
+                    loadingBox.style.display = 'none';
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Buscar e Baixar';
+                    errorBox.style.display = 'block';
+                    errorBox.innerText = 'Tempo limite atingido. A conversão demorou mais do que o esperado. Tente novamente.';
+                    return;
+                }
+
+                try {
+                    const res = await fetch(`/status?run_id=${encodeURIComponent(runId)}&format=${encodeURIComponent(formatType)}`);
+                    const statusData = await res.json();
+
+                    if (!statusData.success && statusData.error) {
+                        stopPolling();
+                        loadingBox.style.display = 'none';
+                        submitBtn.disabled = false;
+                        submitBtn.innerText = 'Buscar e Baixar';
+                        errorBox.style.display = 'block';
+                        errorBox.innerText = `Erro no processamento: ${statusData.error}`;
+                        return;
+                    }
+
+                    if (statusData.ready && statusData.download_url) {
+                        stopPolling();
+                        loadingBox.style.display = 'none';
+                        submitBtn.disabled = false;
+                        submitBtn.innerText = 'Buscar e Baixar';
+
+                        // Atualiza dados finais
+                        if (statusData.title) document.getElementById('media-title').innerText = statusData.title;
+                        if (statusData.duration) document.getElementById('meta-duration').innerText = statusData.duration;
+                        if (statusData.quality) document.getElementById('meta-quality').innerText = statusData.quality;
+
+                        const directBtn = document.getElementById('btn-direct-download');
+                        directBtn.href = statusData.download_url;
+                        directBtn.setAttribute('download', `${statusData.title || 'media'}.${statusData.extension || 'mp4'}`);
+                        document.querySelector('.download-actions').style.display = 'block';
+
+                        resultCard.style.display = 'block';
+                        window.open(statusData.download_url, '_blank');
+                    } else {
+                        // Atualiza mensagem de status enquanto aguarda
+                        loadingText.innerText = `🔄 Processando na nuvem (${attempts * 3}s)... Contornando restrições do YouTube.`;
+                    }
+                } catch (e) {
+                    console.warn('Erro momentâneo ao checar status:', e);
+                }
+            }, 3000);
+        }
+
         async function handleDownload(event) {
             event.preventDefault();
+            stopPolling();
             
             const form = document.getElementById('download-form');
             const submitBtn = document.getElementById('submit-btn');
             const loadingBox = document.getElementById('loading-box');
+            const loadingText = document.getElementById('loading-text');
             const errorBox = document.getElementById('error-box');
             const resultCard = document.getElementById('result-card');
             
             const formData = new FormData(form);
+            const formatType = formData.get('format') || 'video';
             
-            // Estado visual: carregando
             loadingBox.style.display = 'block';
+            loadingText.innerText = 'Iniciando extração do link...';
             errorBox.style.display = 'none';
             resultCard.style.display = 'none';
             submitBtn.disabled = true;
-            submitBtn.innerText = 'Processando link...';
+            submitBtn.innerText = 'Processando...';
 
             try {
                 const response = await fetch('/download', {
@@ -389,12 +465,12 @@
                 
                 const data = await response.json();
                 
-                if (data.success && data.download_url) {
-                    // Preenche o card com as informações reais
-                    document.getElementById('media-title').innerText = data.title || 'Mídia Pronta';
-                    document.getElementById('meta-source').innerText = data.source || 'Online';
-                    document.getElementById('meta-quality').innerText = data.quality || 'Melhor Qualidade';
-                    document.getElementById('meta-duration').innerText = data.duration || 'Vídeo';
+                if (data.success) {
+                    // Preenche o card inicial
+                    document.getElementById('media-title').innerText = data.title || 'Mídia em Processamento';
+                    document.getElementById('meta-source').innerText = data.source || 'Nuvem';
+                    document.getElementById('meta-quality').innerText = data.quality || 'Qualidade Selecionada';
+                    document.getElementById('meta-duration').innerText = data.duration || 'Processando...';
                     
                     if (data.thumbnail) {
                         document.getElementById('media-thumb').src = data.thumbnail;
@@ -403,25 +479,41 @@
                         document.getElementById('thumbnail-box').style.display = 'none';
                     }
 
-                    const directBtn = document.getElementById('btn-direct-download');
-                    directBtn.href = data.download_url;
-                    directBtn.setAttribute('download', `${data.title}.${data.extension || 'mp4'}`);
+                    if (data.async && data.run_id) {
+                        // Modo assíncrono: mostra card e inicia polling
+                        resultCard.style.display = 'block';
+                        document.querySelector('.download-actions').style.display = 'none';
+                        loadingText.innerText = '🔄 Processando na nuvem com proxy residencial (~30s)...';
+                        pollStatus(data.run_id, formatType);
+                    } else if (data.download_url) {
+                        // Modo direto instantâneo (ex: Instagram ou yt-dlp nativo)
+                        loadingBox.style.display = 'none';
+                        submitBtn.disabled = false;
+                        submitBtn.innerText = 'Buscar e Baixar';
 
-                    resultCard.style.display = 'block';
-                    
-                    // Inicia o download automaticamente em nova aba ou direto
-                    window.open(data.download_url, '_blank');
+                        const directBtn = document.getElementById('btn-direct-download');
+                        directBtn.href = data.download_url;
+                        directBtn.setAttribute('download', `${data.title}.${data.extension || 'mp4'}`);
+                        document.querySelector('.download-actions').style.display = 'block';
+
+                        resultCard.style.display = 'block';
+                        window.open(data.download_url, '_blank');
+                    } else {
+                        throw new Error('Resposta sem link de download');
+                    }
                 } else {
+                    loadingBox.style.display = 'none';
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Buscar e Baixar';
                     errorBox.style.display = 'block';
                     errorBox.innerText = `Erro: ${data.error || 'Não foi possível obter o link deste vídeo.'}`;
                 }
             } catch (err) {
-                errorBox.style.display = 'block';
-                errorBox.innerText = 'Erro de comunicação com o servidor. Verifique sua conexão e tente novamente.';
-            } finally {
                 loadingBox.style.display = 'none';
                 submitBtn.disabled = false;
                 submitBtn.innerText = 'Buscar e Baixar';
+                errorBox.style.display = 'block';
+                errorBox.innerText = `Erro de comunicação: ${err.message || 'Verifique sua conexão e tente novamente.'}`;
             }
         }
     </script>
