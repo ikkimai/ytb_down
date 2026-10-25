@@ -1,12 +1,63 @@
 import os
-import yt_dlp
+import re
 
 def resolve_youtube(url, format_type='video'):
     """
-    Extrai o link direto de reprodução/download do YouTube
-    utilizando a emulação de cliente móvel (Android/Web), similar ao Snaptube.
-    Evita a necessidade de processamento de FFmpeg no Vercel.
+    Extrai o link direto de reprodução/download do YouTube utilizando
+    pytubefix (cliente Android/iOS nativo) com fallback para yt-dlp.
+    Bypassa o desafio de bot em datacenters (como Vercel/AWS).
     """
+    # Limpar parâmetros extras da URL como &list= para evitar erro de playlist
+    clean_url = url
+    v_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
+    if v_match:
+        video_id = v_match.group(1)
+        clean_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Método 1: pytubefix com clientes móveis (ANDROID, IOS, MWEB)
+    # Este método não sofre o bloqueio de 'Sign in to confirm you're not a bot'
+    for client_name in ['ANDROID', 'IOS', 'MWEB']:
+        try:
+            from pytubefix import YouTube
+            yt = YouTube(clean_url, client=client_name)
+            
+            title = yt.title or "YouTube_Video"
+            thumbnail = yt.thumbnail_url
+            duration = f"{yt.length // 60}:{yt.length % 60:02d}" if yt.length else "Vídeo"
+            
+            if format_type == 'audio':
+                stream = yt.streams.get_audio_only()
+                if stream and stream.url:
+                    return {
+                        'success': True,
+                        'title': title,
+                        'download_url': stream.url,
+                        'thumbnail': thumbnail,
+                        'duration': duration,
+                        'quality': f"{stream.abr or '128kbps'} (Áudio M4A)",
+                        'extension': 'm4a',
+                        'direct': True,
+                        'source': f'YouTube ({client_name})'
+                    }
+            else:
+                stream = yt.streams.get_highest_resolution()
+                if stream and stream.url:
+                    return {
+                        'success': True,
+                        'title': title,
+                        'download_url': stream.url,
+                        'thumbnail': thumbnail,
+                        'duration': duration,
+                        'quality': f"{stream.resolution or '720p'} (Vídeo + Áudio)",
+                        'extension': 'mp4',
+                        'direct': True,
+                        'source': f'YouTube ({client_name})'
+                    }
+        except Exception:
+            continue
+
+    # Método 2: Fallback para yt-dlp
+    import yt_dlp
     cookie_file = None
     if os.environ.get('YOUTUBE_COOKIES'):
         cookie_path = '/tmp/cookies.txt' if os.environ.get('VERCEL') else os.path.join(os.path.dirname(__file__), '..', 'cookies.txt')
@@ -27,23 +78,21 @@ def resolve_youtube(url, format_type='video'):
             }
         }
     }
-    
     if cookie_file:
         ydl_opts['cookiefile'] = cookie_file
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+        info = ydl.extract_info(clean_url, download=False)
         title = info.get('title', 'Video_YouTube')
         thumbnail = info.get('thumbnail')
         duration = info.get('duration_string') or f"{info.get('duration', 0)}s"
-
         formats = info.get('formats', [])
+        
         selected_url = None
         quality = 'Padrão'
         extension = 'mp4'
 
         if format_type == 'audio':
-            # Procurar faixas de áudio reais (excluindo storyboards mhtml)
             audio_formats = [
                 f for f in formats 
                 if f.get('acodec') and f.get('acodec') != 'none' 
@@ -59,7 +108,6 @@ def resolve_youtube(url, format_type='video'):
                 abr = chosen.get('abr')
                 quality = f"{int(abr)} kbps (Áudio)" if abr else "Melhor Áudio"
             else:
-                # Fallback para o melhor formato com áudio embutido (ex: format 18 MP4 com AAC)
                 f_with_audio = [
                     f for f in formats 
                     if f.get('acodec') and f.get('acodec') != 'none' 
@@ -67,12 +115,11 @@ def resolve_youtube(url, format_type='video'):
                     and f.get('url') and 'http' in f.get('url')
                 ]
                 if f_with_audio:
-                    chosen = f_with_audio[0] # Formato 18 geralmente
+                    chosen = f_with_audio[0]
                     selected_url = chosen.get('url')
                     extension = chosen.get('ext', 'mp4')
                     quality = "Áudio Original (AAC/MP4)"
         else:
-            # Para vídeo: priorizar formatos progressivos com vídeo e áudio juntos
             progressive = [
                 f for f in formats 
                 if f.get('vcodec') and f.get('vcodec') != 'none' 
@@ -110,5 +157,5 @@ def resolve_youtube(url, format_type='video'):
             'quality': quality,
             'extension': extension,
             'direct': True,
-            'source': 'YouTube'
+            'source': 'YouTube (yt-dlp)'
         }
